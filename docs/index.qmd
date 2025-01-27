@@ -1,0 +1,90 @@
+# brmj
+
+Bayesian Regression Models using Julia (like brms, but with Julia).
+
+## Calling [BayesianSurvival.jl](https://github.com/nsiccha/BayesianSurvival.jl) from python
+
+Proof of concept of interoperability between Julia modeling package and a thin python wrapper.
+Ideally, the python wrapper should be as thin as possible, but convert all returns from Julia function calls into python types (e.g. numpy arrays or pandas Dataframes).
+
+### Setup
+
+```{python}
+import pandas as pd
+import seaborn as sns
+import time
+
+
+class Timer(object):
+    # From https://stackoverflow.com/questions/5849800/what-is-the-python-equivalent-of-matlabs-tic-and-toc-functions
+    def __init__(self, name=None, info=None):
+        self.name = name
+        self.info = "" if info == None else f" ({info})"
+
+    def __enter__(self):
+        # print(f'[{self.name}] Starting...',)
+        self.tstart = time.time()
+
+    def __exit__(self, type, value, traceback):
+        dt = time.time() - self.tstart
+        print(f'[{self.name}] Took {dt:.2f} seconds{self.info}') 
+```
+
+```{python}
+with Timer("Importing brmj"):
+    import brmj
+```
+```{python}
+
+with Timer("Initializing Julia environment", """
+           Will take A LOT longer the first time after python package installation.
+           This should 
+            a) install a compatible Julia version,
+            b) install and precompile all required packages,
+            c) load all required packages.
+        """):
+    jl = brmj.init()
+```
+```{python}
+with Timer("Generating data", "will take slightly longer when first called in the current python session"):
+    rng = jl.BayesianSurvival.Xoshiro(0)
+    df = jl.sim_data_exp_correlated(rng, N=10, censor_time=20, rate_form="UNUSED, CURRENTLY HARD CODED TO BE: log_rate~1+male", rate_coefs=[-3, .5])
+    age = pd.Series(df.age).to_numpy()
+    design_matrix = jl.hcat(age - age.mean(), df.male)
+    lpdf1 = jl.survival_model(jl.pem_survival_model, df=df, design_matrix=design_matrix)
+pd.DataFrame(jl.eachrow(df), columns=jl.names(df))
+```
+### Sampling from the posterior
+
+Disclaimer: I have not added a simple flag to make the sampling output less verbose. [Skip to #plotting-generated-quantities](#plotting-generated-quantities).
+```{python}
+with Timer("Sampling from posterior", """
+           Will take A LOT longer when first called in the current python session - ~120s for me. 
+           Julia does work equivalent to compiling Cmdstan + the model. 
+           This time can very likely be reduced signifcantly by using Julia's precompilation mechanisms, but I don't know (yet) how to do it.
+        """):
+    result1 = jl.fit_survival_model(rng, lpdf1)
+```
+```{python}
+
+
+with Timer("Sampling from posterior", "should be much quicker the second time around - < 1s for me"):
+    result2 = jl.fit_survival_model(rng, lpdf1)
+```
+### Plotting generated quantities
+```{python}
+with Timer("Plotting using Julia", "Looks like this works out of the box."):
+    # pass
+    jl_plot = jl.plot_summary(lpdf1, result1, df=df)
+jl_plot
+```
+```{python}
+with Timer("Plotting using Python"):
+    # There should probably be a Julia function to generate the quantities of interest
+    jl.seval("maps(f) = (args...)->map(f, args...)")
+    gqs = jl.mapreduce(
+        lpdf1.gq, jl.maps(jl.hcat), jl.eachcol(result1.posterior_matrix)
+    )
+    py_plot = sns.histplot(pd.Series(jl.vec(gqs.log_hazard_intercept), name="log_hazard_intercept"))
+py_plot
+```

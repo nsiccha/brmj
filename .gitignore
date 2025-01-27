@@ -1,0 +1,10 @@
+getopt
+os
+sys
+sysconfig
+/brmj
+pd
+_site
+.quarto
+.jupyter_cache
+__pycache__
