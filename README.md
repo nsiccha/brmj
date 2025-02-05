@@ -15,7 +15,7 @@ PROOF OF CONCEPT: Bayesian Regression Models using Julia (like brms, but with Ju
 ## Installation
 
 ```console
-pip install brmj
+pip install git+https://github.com/nsiccha/brmj
 ```
 
 ## License
